@@ -1,12 +1,16 @@
 package com.arkivanov.decompose.router.stack
 
+import com.arkivanov.decompose.Cancellation
 import com.arkivanov.decompose.Child
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.router.children.ChildNavState.Status
 import com.arkivanov.decompose.router.children.NavState
+import com.arkivanov.decompose.router.children.NavigationSource
 import com.arkivanov.decompose.router.children.SimpleChildNavState
+import com.arkivanov.decompose.router.children.SimpleNavigation
 import com.arkivanov.decompose.router.children.children
 import com.arkivanov.decompose.value.Value
+import com.arkivanov.essenty.lifecycle.doOnDestroy
 import com.arkivanov.essenty.statekeeper.SerializableContainer
 import com.arkivanov.essenty.statekeeper.consumeRequired
 import kotlinx.serialization.KSerializer
@@ -33,7 +37,7 @@ fun <C : Any, T : Any> ComponentContext.childStack(
     key: String = "DefaultChildStack",
     handleBackButton: Boolean = false,
     childFactory: (configuration: C, ComponentContext) -> T,
-): Value<ChildStack<C, T>> =
+): ChildStackValue<C, T> =
     childStack(
         source = source,
         saveStack = { stack ->
@@ -66,7 +70,7 @@ fun <C : Any, T : Any> ComponentContext.childStack(
     key: String = "DefaultChildStack",
     handleBackButton: Boolean = false,
     childFactory: (configuration: C, ComponentContext) -> T
-): Value<ChildStack<C, T>> =
+): ChildStackValue<C, T> =
     childStack(
         source = source,
         serializer = serializer,
@@ -101,14 +105,25 @@ fun <C : Any, T : Any> ComponentContext.childStack(
     key: String = "DefaultChildStack",
     handleBackButton: Boolean = false,
     childFactory: (configuration: C, ComponentContext) -> T,
-): Value<ChildStack<C, T>> =
-    children(
-        source = source,
+): ChildStackValue<C, T> {
+    val mergedSource = SimpleNavigation<NavEvent<C>>()
+
+    val observer: (StackNavigationSource.Event<C>) -> Unit = { mergedSource.navigate(NavEvent.StackEvent(it)) }
+    source.subscribe(observer)
+    lifecycle.doOnDestroy { source.unsubscribe(observer) }
+
+    val value: Value<ChildStack<C, T>> = children<C, T, NavEvent<C>, StackNavState<C>, ChildStack<C, T>>(
+        source = mergedSource,
         key = key,
         initialState = { StackNavState(configurations = initialStack()) },
         saveState = { saveStack(it.configurations) },
         restoreState = { container -> StackNavState(configurations = restoreStack(container) ?: initialStack()) },
-        navTransformer = { state, event -> StackNavState(configurations = event.transformer(state.configurations)) },
+        navTransformer = { state, event ->
+            when (event) {
+                is NavEvent.StackEvent -> state.copy(configurations = event.event.transformer(state.configurations))
+                is NavEvent.VisibilityHint -> state.copy(visibilityHint = event.configurations)
+            }
+        },
         stateMapper = { _, children ->
             @Suppress("UNCHECKED_CAST")
             val createdChildren = children as List<Child.Created<C, T>>
@@ -119,7 +134,10 @@ fun <C : Any, T : Any> ComponentContext.childStack(
             )
         },
         onEventComplete = { event, newState, oldState ->
-            event.onComplete(newState.configurations, oldState.configurations)
+            when (event) {
+                is NavEvent.StackEvent -> event.event.onComplete(newState.configurations, oldState.configurations)
+                is NavEvent.VisibilityHint -> Unit //no-op
+            }
         },
         backTransformer = { state ->
             if (handleBackButton && (state.configurations.size > 1)) {
@@ -131,8 +149,26 @@ fun <C : Any, T : Any> ComponentContext.childStack(
         childFactory = childFactory,
     )
 
+    return object : ChildStackValue<C, T>() {
+        override fun onVisibilityHint(configurations: Set<C>) {
+            mergedSource.navigate(NavEvent.VisibilityHint(configurations))
+        }
+
+        override val value: ChildStack<C, T> get() = value.value
+
+        override fun subscribe(observer: (ChildStack<C, T>) -> Unit): Cancellation =
+            value.subscribe(observer)
+    }
+}
+
+private sealed interface NavEvent<C : Any> {
+    class StackEvent<C : Any>(val event: StackNavigationSource.Event<C>) : NavEvent<C>
+    class VisibilityHint<C : Any>(val configurations: Set<C>) : NavEvent<C>
+}
+
 private data class StackNavState<out C : Any>(
     val configurations: List<C>,
+    val visibilityHint: Set<C> = emptySet(),
 ) : NavState<C> {
 
     init {
@@ -143,7 +179,23 @@ private data class StackNavState<out C : Any>(
         configurations.mapIndexed { index, configuration ->
             SimpleChildNavState(
                 configuration = configuration,
-                status = if (index == configurations.lastIndex) Status.RESUMED else Status.CREATED,
+                status = when {
+                    index == configurations.lastIndex -> Status.RESUMED
+                    configuration in visibilityHint -> Status.STARTED
+                    else -> Status.CREATED
+                },
             )
         }
+}
+
+private class MergedNavigationSource<T1 : Any, R : Any>(
+    private val first: NavigationSource<T1>,
+) : NavigationSource<R> {
+    override fun subscribe(observer: (R) -> Unit) {
+        TODO("Not yet implemented")
+    }
+
+    override fun unsubscribe(observer: (R) -> Unit) {
+        TODO("Not yet implemented")
+    }
 }

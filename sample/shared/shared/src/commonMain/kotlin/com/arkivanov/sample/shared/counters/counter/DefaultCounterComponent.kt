@@ -12,6 +12,7 @@ import com.arkivanov.decompose.value.operator.map
 import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.instancekeeper.InstanceKeeper
 import com.arkivanov.essenty.instancekeeper.getOrCreate
+import com.arkivanov.essenty.lifecycle.subscribe
 import com.arkivanov.sample.shared.counters.counter.CounterComponent.Model
 import com.arkivanov.sample.shared.dialog.DefaultDialogComponent
 import com.arkivanov.sample.shared.dialog.DialogComponent
@@ -64,6 +65,15 @@ internal class DefaultCounterComponent(
 
     init {
         stateKeeper.register(key = KEY_STATE, strategy = State.serializer()) { handler.state.value }
+
+        lifecycle.subscribe(
+            onCreate = { println("MyTest: $title, onCreate") },
+            onStart = { println("MyTest: $title, onStart") },
+            onResume = { println("MyTest: $title, onResume") },
+            onPause = { println("MyTest: $title, onPause") },
+            onStop = { println("MyTest: $title, onStop") },
+            onDestroy = { println("MyTest: $title, onDestroy") },
+        )
     }
 
     private fun State.toModel(): Model =

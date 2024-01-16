@@ -2,6 +2,7 @@ package com.arkivanov.decompose.extensions.compose.stack
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -13,6 +14,7 @@ import com.arkivanov.decompose.extensions.compose.stack.animation.emptyStackAnim
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.decompose.hashString
 import com.arkivanov.decompose.router.stack.ChildStack
+import com.arkivanov.decompose.router.stack.ChildStackValue
 import com.arkivanov.decompose.value.Value
 
 @Composable
@@ -52,6 +54,40 @@ fun <C : Any, T : Any> Children(
         content = content
     )
 }
+
+@Composable
+fun <C : Any, T : Any> Children(
+    stack: ChildStackValue<C, T>,
+    modifier: Modifier = Modifier,
+    animation: StackAnimation<C, T>? = null,
+    content: @Composable (child: Child.Created<C, T>) -> Unit,
+) {
+    val state by stack.subscribeAsState()
+    val holder = rememberSaveableStateHolder()
+
+    holder.retainStates(state.getConfigurations())
+
+    val animationProvider = LocalStackAnimationProvider.current
+    val anim = animation ?: remember(animationProvider, animationProvider::provide) ?: emptyStackAnimation()
+    val visibleConfigurations = remember { HashSet<C>() }
+
+    anim(stack = state, modifier = modifier) { child ->
+        holder.SaveableStateProvider(child.configuration.hashString()) {
+            content(child)
+
+            DisposableEffect(Unit) {
+                visibleConfigurations += child.configuration
+                stack.onVisibilityHint(visibleConfigurations)
+
+                onDispose {
+                    visibleConfigurations -= child.configuration
+                    stack.onVisibilityHint(visibleConfigurations)
+                }
+            }
+        }
+    }
+}
+
 
 private fun ChildStack<*, *>.getConfigurations(): Set<String> =
     items.mapTo(HashSet()) { it.configuration.hashString() }

@@ -1,7 +1,7 @@
 package com.arkivanov.sample.shared.counters
 
 import com.arkivanov.decompose.ComponentContext
-import com.arkivanov.decompose.router.stack.ChildStack
+import com.arkivanov.decompose.router.stack.ChildStackValue
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.pop
@@ -26,7 +26,7 @@ internal class DefaultCountersComponent(
             childFactory = ::child,
         )
 
-    override val childStack: Value<ChildStack<*, CounterComponent>> get() = _childStack
+    override val childStack: ChildStackValue<*, CounterComponent> get() = _childStack
 
     private fun child(
         config: Config,
